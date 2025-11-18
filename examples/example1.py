@@ -1,7 +1,4 @@
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../'))  # noqa
-
+import pathlib
 import numpy as np
 import cv2
 
@@ -28,7 +25,8 @@ def main():
     # Set scene image path. The image encodes refractive index, dampening and emitters in its color channels
     # see 'static_image_scene.StaticImageScene' class for a more detailed description.
     # please take a look at the image to understand what is happening in the simulation
-    scene_image_path = '../../example_data/scene_lens_doubleslit.png'
+    example_data_dir = pathlib.Path(__file__).parent.parent / 'example_data'
+    scene_image_path = example_data_dir / 'scene_lens_doubleslit.png'
 
     # create colormaps
     field_colormap = vis.get_colormap_lut('colormap_wave1', invert=False, black_level=-0.05)
@@ -45,7 +43,7 @@ def main():
     visualizer = vis.WaveVisualizer(field_colormap=field_colormap, intensity_colormap=intensity_colormap)
 
     # run simulation
-    for i in range(2000):
+    for i in range(4000):
         simulator.update_scene()
         simulator.update_field()
         visualizer.update(simulator)

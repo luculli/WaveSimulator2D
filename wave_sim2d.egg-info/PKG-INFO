@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: wave-sim2d
+Version: 0.1.0
+Summary: A lightweight 2D wave simulator running on the GPU using CuPy
+Author: 0x23
+Requires-Python: >=3.7
+Requires-Dist: numpy
+Requires-Dist: opencv-python
+Requires-Dist: matplotlib
+Requires-Dist: cupy
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Dynamic: author
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary

@@ -1,7 +1,3 @@
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../'))  # noqa
-
 import cv2
 import wave_sim2d.wave_visualizer as vis
 import wave_sim2d.wave_simulation as sim
@@ -12,9 +8,9 @@ def build_scene():
     """
     This example creates the simplest possible simulation using a single emitter.
     """
-    width = 512
-    height = 512
-    objects = [PointSource(200, 256, 0.1, 5)]
+    width = 1024
+    height = 1024
+    objects = [PointSource(512, 512, 0.1, 5)]
     # objects.append(StaticRefractiveIndexPolygon([[400, 255], [300, 200], [300, 300]], 1.5))
     # objects = [LineSource((200, 265), (250, 105), 0.2, 0.5)]
 
@@ -34,7 +30,7 @@ def main():
     visualizer = vis.WaveVisualizer(field_colormap=field_colormap, intensity_colormap=intensity_colormap)
 
     # run simulation
-    for i in range(1000):
+    for i in range(5000):
         simulator.update_scene()
         simulator.update_field()
         visualizer.update(simulator)

@@ -1,7 +1,3 @@
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../'))  # noqa
-
 import numpy as np
 import cupy as cp
 import math
@@ -57,13 +53,17 @@ class MovingCharge(sim.SceneObject):
         hh = self.source_array.shape[0]//2
         field[y-hh:y+hh+1, x-wh:x+wh+1] += self.source_array * fade_in * 0.25
 
+    def render_visualization(self, image: np.ndarray):
+        """ renders a visualization of the scene object to the image """
+        pass
+
 
 def build_scene():
     """
     In this example, a custom scene object is implemented and used to simulate a moving field disturbance.
     """
-    width = 600
-    height = 600
+    width = 1200
+    height = 1200
     objects = []
 
     # Add a static dampening field without any dampending in the interior (value 1.0 means no dampening)

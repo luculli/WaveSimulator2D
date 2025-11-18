@@ -1,7 +1,3 @@
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '../'))  # noqa
-
 import numpy as np
 import cv2
 import wave_sim2d.wave_visualizer as vis
@@ -16,8 +12,8 @@ def build_scene():
     In this example, a new scene is created from scratch and a few emitters are places manually.
     One of the emitters uses an amplitude modulation object to change brightness over time
     """
-    width = 600
-    height = 600
+    width = 1200
+    height = 1200
     objects = []
 
     # Add a static dampening field without any dampending in the interior (value 1.0 means no dampening)
@@ -53,7 +49,7 @@ def main():
     visualizer = vis.WaveVisualizer(field_colormap=field_colormap, intensity_colormap=intensity_colormap)
 
     # run simulation
-    for i in range(2000):
+    for i in range(8000):
         simulator.update_scene()
         simulator.update_field()
         visualizer.update(simulator)
