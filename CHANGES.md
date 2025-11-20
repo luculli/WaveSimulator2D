@@ -1,3 +1,7 @@
+### Update 20.11.2025 (Ver. 1.0.2)
+
+* Refactored simulator
+
 
 ### Update 18.11.2025 (Ver. 1.0.1)
 
@@ -17,6 +21,7 @@
 <div style="display: flex;">
     <img src="images/optical_cavity.jpg" alt="Example 4 - Optical Cavity with Standing Waves" width="50%">
 </div>
+
 
 ### Update 01.04.2024
 
