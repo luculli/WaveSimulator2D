@@ -1,121 +1,168 @@
-import cupy
-import numpy as np
-import cupy as cp
-import cupyx.scipy.signal
-from abc import ABC, abstractmethod
+# ---------------------------------------------------------------------
+# -- Refactored Simulator
+# ---------------------------------------------------------------------
+# 1. Decoupled simulation components
+#
+# You can swap:
+#   - Laplacian stencil
+#   - CPU/GPU backend
+#   - Integrators (FDTD, leapfrog, RK2, symplectic updates)
+#   - Boundary conditions
+# without touching WaveSimulator.
+#
+# 2. Scene objects no longer know about internals
+#   - They simply modify a FieldSet.
+#
+# 3. Easier multi-GPU or batching
+#   - Backend abstraction makes it possible.
+#
+# 4. Cleaner testing
+#   - Mock backends let you test without CUDA.
+# ---------------------------------------------------------------------
 
 
-class SceneObject(ABC):
-    """
-    Interface for simulation scene objects. A scene object is anything defining or modifying the simulation scene.
-    For example: Light sources, Absorbers or regions with specific refractive index. Scene objects can change the
-    simulated field and draw their contribution to the wave speed field and dampening field each frame """
+## Computation Backend
+class ArrayBackend(ABC):
+    @abstractmethod
+    def array(self, data, dtype=None): pass
 
     @abstractmethod
-    def render(self, field: cupy.ndarray, wave_speed_field: cupy.ndarray, dampening_field: cupy.ndarray):
-        """ renders the scene objects contribution to the wave speed field and dampening field """
-        pass
+    def zeros(self, shape, dtype=None): pass
 
     @abstractmethod
-    def update_field(self, field: cupy.ndarray, t):
-        """ performs updates to the field itself, e.g. for adding sources """
-        pass
+    def ones(self, shape, dtype=None): pass
 
     @abstractmethod
-    def render_visualization(self, image: np.ndarray):
-        """ renders a visualization of the scene object to the image """
-        pass
+    def convolve2d(self, x, kernel): pass
 
+class CuPyBackend(ArrayBackend):
+    def __init__(self):
+        import cupy as cp
+        import cupyx.scipy.signal as cpsig
+        self.cp = cp
+        self.cp_signal = cpsig
 
-class WaveSimulator2D:
-    """
-    Simulates the 2D wave equation
-    The system assumes units, where the wave speed is 1.0 pixel/timestep
-    source frequency should be adjusted accordingly
-    """
-    def __init__(self, w, h, scene_objects, initial_field=None):
-        """
-        Initialize the 2D wave simulator.
-        @param w: Width of the simulation grid.
-        @param h: Height of the simulation grid.
-        """
+    def array(self, data, dtype=None):
+        return self.cp.array(data, dtype=dtype)
+
+    def zeros(self, shape, dtype=None):
+        return self.cp.zeros(shape, dtype=dtype)
+
+    def ones(self, shape, dtype=None):
+        return self.cp.ones(shape, dtype=dtype)
+
+    def convolve2d(self, x, kernel):
+        return self.cp_signal.convolve2d(x, kernel, mode="same", boundary="fill")
+
+## 
+class LaplacianOperator(ABC):
+    @abstractmethod
+    def apply(self, field): pass
+
+class NinePointLaplacian(LaplacianOperator):
+    def __init__(self, backend, kernel=None):
+        self.backend = backend
+        if kernel is None:
+            kernel = [[0.066, 0.184, 0.066],
+                      [0.184, -1.0, 0.184],
+                      [0.066, 0.184, 0.066]]
+        self.kernel = backend.array(kernel, dtype="float32")
+
+    def apply(self, field):
+        return self.backend.convolve2d(field, self.kernel)
+
+## 
+class TimeIntegrator(ABC):
+    @abstractmethod
+    def step(self, fields, laplacian, dt): pass
+
+class StandardWaveIntegrator(TimeIntegrator):
+    def step(self, F, lap, dt):
+        # F is a FieldSet instance
+        u, u_prev, c, d = F.u, F.u_prev, F.c, F.d
+        
+        # Laplacian
+        L = lap.apply(u)
+
+        # Velocity-like term
+        v = (u - u_prev) * d * F.global_dampening
+
+        # Update
+        next_u = u + v + L * (c * dt)**2
+
+        # Swap buffers
+        F.u_prev[:] = u
+        F.u[:] = next_u
+
+## State
+class FieldSet:
+    def __init__(self, w, h, backend):
+        self.backend = backend
+        self.u       = backend.zeros((h, w), dtype="float32")
+        self.u_prev  = backend.zeros((h, w), dtype="float32")
+        self.c       = backend.ones((h, w), dtype="float32")
+        self.d       = backend.ones((h, w), dtype="float32")
         self.global_dampening = 1.0
-        self.c = cp.ones((h, w), dtype=cp.float32)                      # wave speed field (from refractive indices)
-        self.d = cp.ones((h, w), dtype=cp.float32)                      # dampening field
-        self.u = cp.zeros((h, w), dtype=cp.float32)                     # field values
-        self.u_prev = cp.zeros((h, w), dtype=cp.float32)                # field values of prev frame
 
-        if initial_field is not None:
-            assert w == initial_field.shape[1] and h == initial_field.shape[2], 'width/height of initial field invalid'
-            self.u[:] = initial_field
-            self.u_prev[:] = initial_field
+# Scene
+class SceneObject(ABC):
+    @abstractmethod
+    def render_to_fields(self, fields: FieldSet): pass
 
-        # Define Laplacian kernel
-        self.laplacian_kernel = cp.array([[0.066, 0.184, 0.066],
-                                          [0.184, -1.0, 0.184],
-                                          [0.066, 0.184, 0.066]])
+    @abstractmethod
+    def update_field(self, fields: FieldSet, t): pass
 
-        # self.laplacian_kernel = cp.array([[0.05, 0.2, 0.05],
-        #                           [0.2, -1.0, 0.2],
-        #                           [0.05, 0.2, 0.05]])
+    @abstractmethod
+    def draw_visualization(self, image: np.ndarray): pass
 
-        # self.laplacian_kernel = cp.array([[0.103, 0.147, 0.103],
-        #                                   [0.147, -1.0, 0.147],
-        #                                   [0.103, 0.147, 0.103]])
+# Simulator
+class WaveSimulator:
+    def __init__(self, w, h, 
+                 backend: ArrayBackend,
+                 laplacian: LaplacianOperator,
+                 integrator: TimeIntegrator,
+                 scene_objects=None,
+                 initial_field=None):
 
-        self.t = 0
+        self.backend     = backend
+        self.laplacian   = laplacian
+        self.integrator  = integrator
+        self.fields      = FieldSet(w, h, backend)
+        self.scene_objects = scene_objects or []
+        self.t = 0.0
         self.dt = 1.0
 
-        self.scene_objects = scene_objects if scene_objects is not None else []
+        if initial_field is not None:
+            self.fields.u[:] = initial_field
+            self.fields.u_prev[:] = initial_field
 
-    def reset_time(self):
-        """
-        Reset the simulation time to zero.
-        """
-        self.t = 0.0
-
-    def update_field(self):
-        """
-        Update the simulation field based on the wave equation.
-        """
-        # calculate laplacian using convolution
-        laplacian = cupyx.scipy.signal.convolve2d(self.u, self.laplacian_kernel, mode='same', boundary='fill')
-
-        # update field
-        v = (self.u - self.u_prev) * self.d * self.global_dampening
-        r = (self.u + v + laplacian * (self.c * self.dt)**2)
-
-        self.u_prev[:] = self.u
-        self.u[:] = r
-
-        self.t += self.dt
+    # -- Simulation Steps --
 
     def update_scene(self):
-        # clear wave speed field and dampening field
-        self.c.fill(1.0)
-        self.d.fill(1.0)
+        F = self.fields
+
+        # reset to defaults
+        F.c.fill(1.0)
+        F.d.fill(1.0)
 
         for obj in self.scene_objects:
-            obj.render(self.u, self.c, self.d)
+            obj.render_to_fields(F)
 
         for obj in self.scene_objects:
-            obj.update_field(self.u, self.t)
+            obj.update_field(F, self.t)
+
+    def update_field(self):
+        self.integrator.step(self.fields, self.laplacian, self.dt)
+        self.t += self.dt
+
+    # -- Accessors --
 
     def get_field(self):
-        """
-        Get the current state of the simulation field.
-        @return: A 2D array representing the simulation field.
-        """
-        return self.u
+        return self.fields.u
 
-    def render_visualization(self, image=None):
-        # clear wave speed field and dampening field
-        if image is None:
-            image = np.zeros((self.c.shape[0], self.c.shape[1], 3), dtype=np.uint8)
-
+    def visualize_scene(self):
+        image = np.zeros((*self.fields.c.shape, 3), dtype=np.uint8)
         for obj in self.scene_objects:
-            obj.render_visualization(image)
-
+            obj.draw_visualization(image)
         return image
-
 
